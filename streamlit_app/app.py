@@ -9,26 +9,36 @@ st.set_page_config(page_title="Stock Signal App", layout="wide")
 st.markdown(
     """
     <style>
-    .fixed-title {
-        position: sticky;
+
+    .app-header {
+        position: fixed;
         top: 0;
-        z-index: 999;
+        left: 0;
+        right: 0;
+        height: 70px;
         background: white;
-        padding-top: 18px;
-        padding-bottom: 12px;
-        font-size: 3rem;
+        display: flex;
+        align-items: center;
+        padding-left: 30px;
+        font-size: 30px;
         font-weight: 700;
-        color: #2f3342;
+        color: #1f2937;
         border-bottom: 1px solid #e5e7eb;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+        z-index: 9999;
     }
 
-    .title-spacer {
-        height: 24px;
+    .content-spacer {
+        height: 90px;
     }
+
     </style>
 
-    <div class="fixed-title">Stock Candlestick Chart</div>
-    <div class="title-spacer"></div>
+    <div class="app-header">
+        📈 Stock Market Signal Dashboard
+    </div>
+
+    <div class="content-spacer"></div>
     """,
     unsafe_allow_html=True,
 )
