@@ -67,7 +67,20 @@ def fmt_num(value):
     return f"{value:.2f}"
 
 
-df = yf.Ticker(symbol).history(period=period, interval="1d")
+@st.cache_data(ttl=900)
+def load_stock_data(symbol: str, period: str):
+    df = yf.Ticker(symbol).history(period=period, interval="1d")
+    return df
+
+
+try:
+    df = load_stock_data(symbol, period)
+except Exception:
+    st.error(
+        "Yahoo Finance is temporarily rate-limiting requests. "
+        "Please wait a little and try again."
+    )
+    st.stop()
 
 if df.empty:
     st.error("No price data found.")
@@ -153,14 +166,12 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# --- Buy / Sell markers based on SMA crossover ---
 cross_up = (df["SMA20"] > df["SMA50"]) & (df["SMA20"].shift(1) <= df["SMA50"].shift(1))
 cross_down = (df["SMA20"] < df["SMA50"]) & (df["SMA20"].shift(1) >= df["SMA50"].shift(1))
 
 buy_points = df[cross_up].copy()
 sell_points = df[cross_down].copy()
 
-# --- Multi-panel chart: main price + RSI ---
 fig = make_subplots(
     rows=2,
     cols=1,
@@ -170,7 +181,6 @@ fig = make_subplots(
     specs=[[{"secondary_y": True}], [{"secondary_y": False}]],
 )
 
-# Candlestick
 fig.add_trace(
     go.Candlestick(
         x=df.index,
@@ -185,7 +195,6 @@ fig.add_trace(
     secondary_y=False,
 )
 
-# SMA20
 fig.add_trace(
     go.Scatter(
         x=df.index,
@@ -199,7 +208,6 @@ fig.add_trace(
     secondary_y=False,
 )
 
-# SMA50
 fig.add_trace(
     go.Scatter(
         x=df.index,
@@ -213,7 +221,6 @@ fig.add_trace(
     secondary_y=False,
 )
 
-# Volume bars
 fig.add_trace(
     go.Bar(
         x=df.index,
@@ -230,7 +237,6 @@ fig.add_trace(
     secondary_y=True,
 )
 
-# BUY markers
 if not buy_points.empty:
     fig.add_trace(
         go.Scatter(
@@ -238,18 +244,13 @@ if not buy_points.empty:
             y=buy_points["Low"] * 0.98,
             mode="markers",
             name="BUY signal",
-            marker=dict(
-                color="#2563eb",
-                size=12,
-                symbol="triangle-up",
-            ),
+            marker=dict(color="#2563eb", size=12, symbol="triangle-up"),
         ),
         row=1,
         col=1,
         secondary_y=False,
     )
 
-# SELL markers
 if not sell_points.empty:
     fig.add_trace(
         go.Scatter(
@@ -257,18 +258,13 @@ if not sell_points.empty:
             y=sell_points["High"] * 1.02,
             mode="markers",
             name="SELL signal",
-            marker=dict(
-                color="#dc2626",
-                size=12,
-                symbol="triangle-down",
-            ),
+            marker=dict(color="#dc2626", size=12, symbol="triangle-down"),
         ),
         row=1,
         col=1,
         secondary_y=False,
     )
 
-# RSI line
 fig.add_trace(
     go.Scatter(
         x=df.index,
@@ -281,68 +277,26 @@ fig.add_trace(
     col=1,
 )
 
-# RSI 70 line
-fig.add_hline(
-    y=70,
-    line_dash="dash",
-    line_color="#ef4444",
-    opacity=0.8,
-    row=2,
-    col=1,
-)
-
-# RSI 30 line
-fig.add_hline(
-    y=30,
-    line_dash="dash",
-    line_color="#10b981",
-    opacity=0.8,
-    row=2,
-    col=1,
-)
+fig.add_hline(y=70, line_dash="dash", line_color="#ef4444", opacity=0.8, row=2, col=1)
+fig.add_hline(y=30, line_dash="dash", line_color="#10b981", opacity=0.8, row=2, col=1)
 
 fig.update_layout(
     height=760,
     dragmode="pan",
     margin=dict(l=20, r=20, t=20, b=20),
-    legend=dict(
-        orientation="h",
-        yanchor="bottom",
-        y=1.02,
-        xanchor="left",
-        x=0,
-    ),
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
     hovermode="x unified",
 )
 
-# Main price axis
 fig.update_yaxes(title_text="Price", row=1, col=1, secondary_y=False)
+fig.update_yaxes(title_text="Volume", row=1, col=1, secondary_y=True, showgrid=False)
+fig.update_yaxes(title_text="RSI", row=2, col=1, range=[0, 100])
 
-# Volume axis
-fig.update_yaxes(
-    title_text="Volume",
-    row=1,
-    col=1,
-    secondary_y=True,
-    showgrid=False,
-)
-
-# RSI axis
-fig.update_yaxes(
-    title_text="RSI",
-    row=2,
-    col=1,
-    range=[0, 100],
-)
-
-# Hide range slider
 fig.update_xaxes(rangeslider=dict(visible=False), row=1, col=1)
 fig.update_xaxes(rangeslider=dict(visible=False), row=2, col=1)
 
 st.plotly_chart(
     fig,
     use_container_width=True,
-    config={
-        "scrollZoom": True
-    }
+    config={"scrollZoom": True}
 )
