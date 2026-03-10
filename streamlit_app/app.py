@@ -6,43 +6,51 @@ from plotly.subplots import make_subplots
 
 st.set_page_config(page_title="Stock Signal App", layout="wide")
 
+# -----------------------------
+# Sticky Header
+# -----------------------------
+header = st.container()
+
+with header:
+    st.markdown(
+        """
+        <div class="fixed-header-marker"></div>
+        <div class="fixed-header-title">Stock Candlestick Chart</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 st.markdown(
     """
     <style>
-
-    .app-header {
-        position: fixed;
+    div[data-testid="stVerticalBlock"] div:has(div.fixed-header-marker) {
+        position: sticky;
         top: 0;
-        left: 0;
-        right: 0;
-        height: 70px;
+        z-index: 999;
         background: white;
-        display: flex;
-        align-items: center;
-        padding-left: 30px;
-        font-size: 30px;
-        font-weight: 700;
-        color: #1f2937;
+        padding-top: 16px;
+        padding-bottom: 12px;
         border-bottom: 1px solid #e5e7eb;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-        z-index: 9999;
     }
 
-    .content-spacer {
-        height: 90px;
+    .fixed-header-marker {
+        display: none;
     }
 
+    .fixed-header-title {
+        font-size: 3rem;
+        font-weight: 700;
+        color: #2f3342;
+        margin: 0;
+    }
     </style>
-
-    <div class="app-header">
-        📈 Stock Market Signal Dashboard
-    </div>
-
-    <div class="content-spacer"></div>
     """,
     unsafe_allow_html=True,
 )
 
+# -----------------------------
+# Inputs
+# -----------------------------
 col1, col2 = st.columns([2, 1])
 
 with col1:
@@ -55,10 +63,11 @@ with col2:
         index=3
     )
 
-
+# -----------------------------
+# Indicators
+# -----------------------------
 def sma(values: pd.Series, window: int):
     return values.rolling(window).mean()
-
 
 def rsi(close: pd.Series, window: int = 14):
     delta = close.diff()
@@ -71,28 +80,33 @@ def rsi(close: pd.Series, window: int = 14):
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
 
-
 def kagi_count(closes, threshold=50):
     closes = list(closes.dropna())
+
     if not closes:
         return 0
 
     count = 0
-    last_key_price = closes[0]
+    last_key = closes[0]
 
     for price in closes[1:]:
-        if abs(price - last_key_price) >= threshold:
+        if abs(price - last_key) >= threshold:
             count += 1
-            last_key_price = price
+            last_key = price
 
     return count
 
+# -----------------------------
+# Colors for signals
+# -----------------------------
+def signal_color(hint):
 
-def signal_color(hint: str):
     if hint == "BUY":
         return "#1d4ed8", "#dbeafe", "#60a5fa"
+
     if hint == "SELL":
         return "#b91c1c", "#fee2e2", "#f87171"
+
     return "#374151", "#f3f4f6", "#d1d5db"
 
 
@@ -101,26 +115,34 @@ def fmt_num(value):
         return "-"
     return f"{value:.2f}"
 
-
+# -----------------------------
+# Data Load (cached)
+# -----------------------------
 @st.cache_data(ttl=900)
-def load_stock_data(symbol: str, period: str):
-    df = yf.Ticker(symbol).history(period=period, interval="1d")
+def load_stock(symbol, period):
+
+    df = yf.Ticker(symbol).history(
+        period=period,
+        interval="1d"
+    )
+
     return df
 
-
 try:
-    df = load_stock_data(symbol, period)
+    df = load_stock(symbol, period)
+
 except Exception:
-    st.error(
-        "Yahoo Finance is temporarily rate-limiting requests. "
-        "Please wait a little and try again."
-    )
+
+    st.error("Yahoo Finance rate limit reached. Please try again later.")
     st.stop()
 
 if df.empty:
-    st.error("No price data found.")
+    st.error("No stock data found.")
     st.stop()
 
+# -----------------------------
+# Indicators calculation
+# -----------------------------
 df["SMA20"] = sma(df["Close"], 20)
 df["SMA50"] = sma(df["Close"], 50)
 df["RSI14"] = rsi(df["Close"], 14)
@@ -131,29 +153,33 @@ last_sma50 = df["SMA50"].iloc[-1]
 last_rsi = df["RSI14"].iloc[-1]
 kagi_moves = kagi_count(df["Close"], 50)
 
+# -----------------------------
+# Signal logic
+# -----------------------------
 hint = "HOLD"
 confidence = "LOW"
-reason = "Not enough data for indicators yet."
+reason = "Not enough data."
 
 if pd.notna(last_sma20) and pd.notna(last_sma50) and pd.notna(last_rsi):
+
     score = 0
     reasons = []
 
     if last_sma20 > last_sma50:
         score += 1
-        reasons.append("SMA20 is above SMA50 (uptrend)")
+        reasons.append("SMA20 above SMA50 (uptrend)")
     else:
         score -= 1
-        reasons.append("SMA20 is below SMA50 (downtrend)")
+        reasons.append("SMA20 below SMA50 (downtrend)")
 
     if last_rsi < 30:
         score += 1
-        reasons.append("RSI is below 30 (oversold)")
+        reasons.append("RSI oversold")
     elif last_rsi > 70:
         score -= 1
-        reasons.append("RSI is above 70 (overbought)")
+        reasons.append("RSI overbought")
     else:
-        reasons.append("RSI is neutral")
+        reasons.append("RSI neutral")
 
     if score >= 2:
         hint = "BUY"
@@ -175,44 +201,58 @@ if pd.notna(last_sma20) and pd.notna(last_sma50) and pd.notna(last_rsi):
 
 text_color, box_color, border_color = signal_color(hint)
 
+# -----------------------------
+# Signal box
+# -----------------------------
 st.markdown(
     f"""
-    <div style="
-        margin-top:10px;
-        margin-bottom:16px;
-        padding:12px;
-        border:1px solid {border_color};
-        border-radius:10px;
-        background:{box_color};
-        color:{text_color};
-    ">
-      <div><b>Hint:</b> {hint}</div>
-      <div><b>Confidence:</b> {confidence}</div>
-      <div><b>Reason:</b> {reason}</div>
-      <div style="margin-top:8px;">
-        <b>Close:</b> {fmt_num(last_close)} |
-        <b>SMA20:</b> {fmt_num(last_sma20)} |
-        <b>SMA50:</b> {fmt_num(last_sma50)} |
-        <b>RSI14:</b> {fmt_num(last_rsi)} |
-        <b>Kagi Moves (≥50):</b> {kagi_moves}
-      </div>
-    </div>
-    """,
+<div style="
+padding:12px;
+border-radius:10px;
+border:1px solid {border_color};
+background:{box_color};
+color:{text_color};
+margin-top:12px;
+margin-bottom:20px;
+">
+
+<b>Hint:</b> {hint}  
+<br>
+<b>Confidence:</b> {confidence}  
+<br>
+<b>Reason:</b> {reason}  
+
+<br><br>
+
+<b>Close:</b> {fmt_num(last_close)} |
+<b>SMA20:</b> {fmt_num(last_sma20)} |
+<b>SMA50:</b> {fmt_num(last_sma50)} |
+<b>RSI14:</b> {fmt_num(last_rsi)} |
+<b>Kagi Moves (≥50):</b> {kagi_moves}
+
+</div>
+""",
     unsafe_allow_html=True,
 )
 
+# -----------------------------
+# Buy/Sell cross detection
+# -----------------------------
 cross_up = (df["SMA20"] > df["SMA50"]) & (df["SMA20"].shift(1) <= df["SMA50"].shift(1))
 cross_down = (df["SMA20"] < df["SMA50"]) & (df["SMA20"].shift(1) >= df["SMA50"].shift(1))
 
-buy_points = df[cross_up].copy()
-sell_points = df[cross_down].copy()
+buy_points = df[cross_up]
+sell_points = df[cross_down]
 
+# -----------------------------
+# Chart
+# -----------------------------
 fig = make_subplots(
     rows=2,
     cols=1,
     shared_xaxes=True,
-    vertical_spacing=0.04,
-    row_heights=[0.75, 0.25],
+    row_heights=[0.75,0.25],
+    vertical_spacing=0.05,
     specs=[[{"secondary_y": True}], [{"secondary_y": False}]],
 )
 
@@ -226,34 +266,29 @@ fig.add_trace(
         name="Price"
     ),
     row=1,
-    col=1,
-    secondary_y=False,
+    col=1
 )
 
 fig.add_trace(
     go.Scatter(
         x=df.index,
         y=df["SMA20"],
-        mode="lines",
         name="SMA20",
-        line=dict(color="blue", width=2),
+        line=dict(color="blue", width=2)
     ),
     row=1,
-    col=1,
-    secondary_y=False,
+    col=1
 )
 
 fig.add_trace(
     go.Scatter(
         x=df.index,
         y=df["SMA50"],
-        mode="lines",
         name="SMA50",
-        line=dict(color="red", width=2),
+        line=dict(color="red", width=2)
     ),
     row=1,
-    col=1,
-    secondary_y=False,
+    col=1
 )
 
 fig.add_trace(
@@ -261,77 +296,56 @@ fig.add_trace(
         x=df.index,
         y=df["Volume"],
         name="Volume",
-        marker_color=[
-            "#26a69a" if c >= o else "#ef5350"
-            for o, c in zip(df["Open"], df["Close"])
-        ],
-        opacity=0.35,
+        opacity=0.35
     ),
     row=1,
     col=1,
-    secondary_y=True,
+    secondary_y=True
 )
 
-if not buy_points.empty:
-    fig.add_trace(
-        go.Scatter(
-            x=buy_points.index,
-            y=buy_points["Low"] * 0.98,
-            mode="markers",
-            name="BUY signal",
-            marker=dict(color="#2563eb", size=12, symbol="triangle-up"),
-        ),
-        row=1,
-        col=1,
-        secondary_y=False,
-    )
+fig.add_trace(
+    go.Scatter(
+        x=buy_points.index,
+        y=buy_points["Low"]*0.98,
+        mode="markers",
+        marker=dict(color="blue", size=10, symbol="triangle-up"),
+        name="BUY signal"
+    ),
+    row=1,
+    col=1
+)
 
-if not sell_points.empty:
-    fig.add_trace(
-        go.Scatter(
-            x=sell_points.index,
-            y=sell_points["High"] * 1.02,
-            mode="markers",
-            name="SELL signal",
-            marker=dict(color="#dc2626", size=12, symbol="triangle-down"),
-        ),
-        row=1,
-        col=1,
-        secondary_y=False,
-    )
+fig.add_trace(
+    go.Scatter(
+        x=sell_points.index,
+        y=sell_points["High"]*1.02,
+        mode="markers",
+        marker=dict(color="red", size=10, symbol="triangle-down"),
+        name="SELL signal"
+    ),
+    row=1,
+    col=1
+)
 
 fig.add_trace(
     go.Scatter(
         x=df.index,
         y=df["RSI14"],
-        mode="lines",
-        name="RSI14",
-        line=dict(color="#7c3aed", width=2),
+        name="RSI",
+        line=dict(color="purple")
     ),
     row=2,
-    col=1,
+    col=1
 )
 
-fig.add_hline(y=70, line_dash="dash", line_color="#ef4444", opacity=0.8, row=2, col=1)
-fig.add_hline(y=30, line_dash="dash", line_color="#10b981", opacity=0.8, row=2, col=1)
+fig.add_hline(y=70, row=2, col=1)
+fig.add_hline(y=30, row=2, col=1)
 
 fig.update_layout(
-    height=760,
-    dragmode="pan",
-    margin=dict(l=20, r=20, t=20, b=20),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-    hovermode="x unified",
+    height=750,
+    hovermode="x unified"
 )
 
-fig.update_yaxes(title_text="Price", row=1, col=1, secondary_y=False)
-fig.update_yaxes(title_text="Volume", row=1, col=1, secondary_y=True, showgrid=False)
-fig.update_yaxes(title_text="RSI", row=2, col=1, range=[0, 100])
+fig.update_xaxes(rangeslider_visible=False)
 
-fig.update_xaxes(rangeslider=dict(visible=False), row=1, col=1)
-fig.update_xaxes(rangeslider=dict(visible=False), row=2, col=1)
-
-st.plotly_chart(
-    fig,
-    use_container_width=True,
-    config={"scrollZoom": True}
-)
+st.plotly_chart(fig, use_container_width=True, config={"scrollZoom":True})
