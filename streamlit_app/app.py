@@ -27,6 +27,14 @@ st.markdown(
         margin-bottom: 0.4rem;
     }
 
+    .company-name {
+        font-size: 1rem;
+        font-weight: 600;
+        color: #334155;
+        margin-top: -4px;
+        margin-bottom: 10px;
+    }
+
     .hint-box {
         padding: 12px 14px;
         border-radius: 10px;
@@ -54,7 +62,7 @@ st.markdown('<div class="app-title">Stock Signal Chart</div>', unsafe_allow_html
 col1, col2 = st.columns([2.2, 1.1], gap="small")
 
 with col1:
-    symbol = st.text_input("Stock Symbol", "AAPL").upper()
+    symbol = st.text_input("Stock Symbol", "AAPL").strip().upper()
 
 with col2:
     period = st.selectbox(
@@ -116,15 +124,35 @@ def fmt_num(value):
 # Data load
 # -----------------------------
 @st.cache_data(ttl=900)
-def load_stock(symbol: str, period: str):
-    return yf.Ticker(symbol).history(period=period, interval="1d")
+def load_stock_data(symbol: str, period: str):
+    ticker = yf.Ticker(symbol)
+    hist = ticker.history(period=period, interval="1d")
+
+    company_name = symbol
+    try:
+        info = ticker.info
+        company_name = (
+            info.get("longName")
+            or info.get("shortName")
+            or info.get("displayName")
+            or symbol
+        )
+    except Exception:
+        company_name = symbol
+
+    return hist, company_name
 
 
 try:
-    df = load_stock(symbol, period)
+    df, company_name = load_stock_data(symbol, period)
 except Exception:
     st.error("Yahoo Finance is temporarily rate-limiting requests. Please try again later.")
     st.stop()
+
+st.markdown(
+    f'<div class="company-name">{symbol} — {company_name}</div>',
+    unsafe_allow_html=True,
+)
 
 if df.empty:
     st.error("No stock data found.")
@@ -197,6 +225,7 @@ st.markdown(
         background:{box_color};
         color:{text_color};
     ">
+        <b>Stock:</b> {company_name} ({symbol})<br>
         <b>Hint:</b> {hint}<br>
         <b>Confidence:</b> {confidence}<br>
         <b>Reason:</b> {reason}<br><br>
@@ -238,7 +267,7 @@ fig.add_trace(
         high=df["High"],
         low=df["Low"],
         close=df["Close"],
-        name="Price",
+        name=f"{company_name} Price",
         increasing_line_color="#26a69a",
         decreasing_line_color="#ef5350",
         increasing_fillcolor="rgba(38,166,154,0.35)",
